@@ -1,0 +1,21 @@
+{
+  "name": "zarya-skullzfyre",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node server.js",
+    "test": "node --test check.test.js network.test.js hosted.test.js",
+    "check:ui": "node ui.check.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.59.0"
+  }
+}

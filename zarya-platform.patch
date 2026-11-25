@@ -1,0 +1,471 @@
+diff --git a/.env.example b/.env.example
+index c24ae96..42572fd 100644
+--- a/.env.example
++++ b/.env.example
+@@ -9,9 +9,10 @@ GHOSTS_DIR=../ghost-fight-boardgame
+ PANIC_DIR=../panic-boardgame
+ CAESAR_DIR=../secret-leader-boardgame
+ ROKUGAN_DIR=../battle-for-rokugan-boardgame
++SKULLZFYRE_DIR=../skullzfyre-boardgame
+ 
+ # Домен и схема. Локально: http + localhost. На сервере: https + ваш домен
+-# (нужны DNS-записи для домена и поддоменов brass., cyclades., ankh., ttr., ghosts., panic., caesar., rokugan.)
++# (нужны DNS-записи для домена и поддоменов brass., cyclades., ankh., ttr., ghosts., panic., caesar., rokugan., skullzfyre.)
+ SCHEME=http
+ DOMAIN=localhost
+ COOKIE_SECURE=0
+diff --git a/README.md b/README.md
+index 958cf46..fa7a028 100644
+--- a/README.md
++++ b/README.md
+@@ -37,6 +37,7 @@ Desktop/
+   panic-boardgame/             ← Panic Station
+   secret-leader-boardgame/     ← Тайный Цезарь
+   battle-for-rokugan-boardgame/ ← Битва за Рокуган
++  skullzfyre-boardgame/         ← Битва на горе Черепламени
+ ```
+ 
+ ```bash
+@@ -54,14 +55,15 @@ docker compose up -d --build
+ | http://panic.localhost | Panic Station |
+ | http://caesar.localhost | Тайный Цезарь |
+ | http://rokugan.localhost | Битва за Рокуган |
++| http://skullzfyre.localhost | Битва на горе Черепламени |
+ 
+ `*.localhost` браузеры сами направляют на 127.0.0.1 — правка hosts не нужна.
+ Другие пути к играм, порты и ключи — в `.env` (образец: `.env.example`).
+ 
+ Сервисы: `caddy` (вход, маршрутизация по поддоменам), `platform` (API + фронтенд), `postgres`,
+-`livekit` (голос/видео; порты 7880, 7881/tcp, 7882/udp), `brass`, `cyclades`, `ankh`, `ttr`, `ghosts`, `panic`, `caesar`, `rokugan`.
++`livekit` (голос/видео; порты 7880, 7881/tcp, 7882/udp), `brass`, `cyclades`, `ankh`, `ttr`, `ghosts`, `panic`, `caesar`, `rokugan`, `skullzfyre`.
+ Партии Brass, Киклад, Анк-Морпорка, Ticket to Ride, «Боя привидений», «Тайного Цезаря» и «Битвы за Рокуган» хранятся в томах
+-`brass_matches`, `cyclades_matches`, `ankh_matches`, `ttr_matches`, `ghosts_matches`, `caesar_matches`, `rokugan_matches`;
++`brass_matches`, `cyclades_matches`, `ankh_matches`, `ttr_matches`, `ghosts_matches`, `caesar_matches`, `rokugan_matches`, `skullzfyre_matches`;
+ Panic Station держит партии в памяти (пропадают при перезапуске контейнера).
+ Panic Station — не boardgame.io, а один файл Node (`panic_station.js`) со своим `Dockerfile`; для платформы он
+ отдаёт тот же лобби-API (`/games/panic-station/...`) и служебные маршруты `/platform/matches/...`.
+@@ -149,13 +151,13 @@ docs/         спецификация и план
+ Обновить после пуша: `bash deploy/deploy.sh root@201.24.61.26`.
+ 
+ Обновить одну игру, не трогая платформу и остальные игры: `bash deploy/game.sh root@201.24.61.26 ankh`
+-(игры: `brass`, `cyclades`, `ankh`, `ttr`, `ghosts`, `panic`, `caesar`, `rokugan`). Скрипт предупредит об открытых столах этой игры, соберёт и
++(игры: `brass`, `cyclades`, `ankh`, `ttr`, `ghosts`, `panic`, `caesar`, `rokugan`, `skullzfyre`). Скрипт предупредит об открытых столах этой игры, соберёт и
+ перезапустит только её контейнер и проверит, что игра отвечает. Вернуть предыдущую версию:
+ `bash deploy/game.sh root@201.24.61.26 ankh --rollback`.
+ 
+ ## На своём сервере
+ 
+-1. DNS: `домен`, `brass.домен`, `cyclades.домен`, `ankh.домен`, `ttr.домен`, `ghosts.домен`, `panic.домен`, `caesar.домен`, `rokugan.домен` → IP сервера.
++1. DNS: `домен`, `brass.домен`, `cyclades.домен`, `ankh.домен`, `ttr.домен`, `ghosts.домен`, `panic.домен`, `caesar.домен`, `rokugan.домен`, `skullzfyre.домен` → IP сервера.
+ 2. `.env`: `SCHEME=https`, `DOMAIN=домен`, `COOKIE_SECURE=1`, `LIVEKIT_PUBLIC_URL=wss://домен`,
+    свои `LIVEKIT_API_SECRET` (≥ 32 символов) и `POSTGRES_PASSWORD`.
+ 3. `deploy/livekit.yaml`: `use_external_ip: true` (или `node_ip: <публичный IP>`); открыть 80, 443, 7881/tcp, 7882/udp.
+diff --git a/apps/server/src/config.ts b/apps/server/src/config.ts
+index ba1fadf..9cda8ff 100644
+--- a/apps/server/src/config.ts
++++ b/apps/server/src/config.ts
+@@ -1,4 +1,4 @@
+-export type GameId = 'brass' | 'cyclades' | 'ankh' | 'ttr' | 'ghosts' | 'panic' | 'caesar' | 'rokugan';
++export type GameId = 'brass' | 'cyclades' | 'ankh' | 'ttr' | 'ghosts' | 'panic' | 'caesar' | 'rokugan' | 'skullzfyre';
+ 
+ export interface GameConfig {
+   id: GameId;
+@@ -91,6 +91,7 @@ export function loadConfig(): Config {
+       game('panic', 'Panic Station', 'panic-station', [4, 6], 'panic-station'),
+       game('caesar', 'Тайный Цезарь', 'secret-caesar', [5, 10], 'тайный-цезарь'),
+       game('rokugan', 'Битва за Рокуган', 'battle-for-rokugan', [2, 5], 'битва-за-рокуган'),
++      game('skullzfyre', 'Эпичные схватки боевых магов: Битва на горе Черепламени', 'skullzfyre', [2, 6], 'гора-черепламени'),
+     ],
+     webDist: env.WEB_DIST ?? null,
+     platformSecret: env.PLATFORM_SECRET || null,
+diff --git a/apps/server/src/migrations/015_skullzfyre.sql b/apps/server/src/migrations/015_skullzfyre.sql
+new file mode 100644
+index 0000000..4168239
+--- /dev/null
++++ b/apps/server/src/migrations/015_skullzfyre.sql
+@@ -0,0 +1,2 @@
++insert into channels (kind, name, game_id, position) values
++  ('text', 'гора-черепламени', 'skullzfyre', 9);
+diff --git a/apps/server/test/channels.test.ts b/apps/server/test/channels.test.ts
+index cd41b1e..8e369af 100644
+--- a/apps/server/test/channels.test.ts
++++ b/apps/server/test/channels.test.ts
+@@ -34,6 +34,7 @@ describe('каналы', () => {
+       'text:panic-station',
+       'text:тайный-цезарь',
+       'text:битва-за-рокуган',
++      'text:гора-черепламени',
+       'voice:Лобби',
+       'voice:За столом',
+     ]);
+diff --git a/apps/server/test/db.test.ts b/apps/server/test/db.test.ts
+index 1234eb8..bacfb9d 100644
+--- a/apps/server/test/db.test.ts
++++ b/apps/server/test/db.test.ts
+@@ -10,7 +10,7 @@ describe('migrate', () => {
+     sql = await freshDb();
+     await migrate(sql);
+     const rows = await sql`select kind, name from channels order by id`;
+-    expect(rows).toHaveLength(11);
++    expect(rows).toHaveLength(12);
+     expect({ ...rows[0] }).toEqual({ kind: 'text', name: 'общий' });
+   });
+ });
+diff --git a/apps/server/test/games.test.ts b/apps/server/test/games.test.ts
+index e5dae99..0e1d973 100644
+--- a/apps/server/test/games.test.ts
++++ b/apps/server/test/games.test.ts
+@@ -25,9 +25,10 @@ afterEach(async () => {
+ describe('игры и столы', () => {
+   it('каталог игр без внутренних адресов', async () => {
+     const games = (await as(app, a).get('/api/games')).json();
+-    expect(games.map((g: { id: string }) => g.id)).toEqual(['brass', 'cyclades', 'ankh', 'ttr', 'ghosts', 'panic', 'caesar', 'rokugan']);
++    expect(games.map((g: { id: string }) => g.id)).toEqual(['brass', 'cyclades', 'ankh', 'ttr', 'ghosts', 'panic', 'caesar', 'rokugan', 'skullzfyre']);
+     expect(games[0]).toMatchObject({ title: 'Brass: Бирмингем', minPlayers: 2, maxPlayers: 4 });
+     expect(games[0]).not.toHaveProperty('internalUrl');
++    expect(games.at(-1)).toMatchObject({ title: 'Эпичные схватки боевых магов: Битва на горе Черепламени', minPlayers: 2, maxPlayers: 6 });
+   });
+ 
+   it('стол создаёт партию, приглашение в канал игры и ссылку с ником', async () => {
+@@ -44,6 +45,13 @@ describe('игры и столы', () => {
+     expect(forB).toMatchObject({ myAccess: 'open', closed: false, game: { title: 'Brass: Бирмингем' }, seats: [] });
+   });
+ 
++  it('стол Черепламени создаёт партию в игровом сервисе', async () => {
++    const response = await as(app, a).post('/api/tables', { gameId: 'skullzfyre', numPlayers: 6 });
++    expect(response.statusCode).toBe(200);
++    expect(stub.calls[0]).toBe('POST /games/skullzfyre/create');
++    expect(response.json()).toMatchObject({ gameId: 'skullzfyre', matchId: 'm1', numPlayers: 6 });
++  });
++
+   it('число игроков проверяется по игре', async () => {
+     expect((await as(app, a).post('/api/tables', { gameId: 'brass', numPlayers: 5 })).statusCode).toBe(400);
+     expect((await as(app, a).post('/api/tables', { gameId: 'cyclades', numPlayers: 5 })).statusCode).toBe(200);
+diff --git a/apps/server/test/public.test.ts b/apps/server/test/public.test.ts
+index 310887e..8c086c5 100644
+--- a/apps/server/test/public.test.ts
++++ b/apps/server/test/public.test.ts
+@@ -13,7 +13,8 @@ describe('витрина', () => {
+     const res = await app.inject({ method: 'GET', url: '/api/public/showcase' });
+     expect(res.statusCode).toBe(200);
+     const body = res.json();
+-    expect(body.games).toHaveLength(8);
++    expect(body.games).toHaveLength(9);
++    expect(body.games).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'skullzfyre' })]));
+     expect(body.events[0]).toEqual({
+       id: expect.any(Number),
+       gameId: 'ankh',
+diff --git a/apps/web/src/covers.ts b/apps/web/src/covers.ts
+index 32dd873..c988873 100644
+--- a/apps/web/src/covers.ts
++++ b/apps/web/src/covers.ts
+@@ -9,4 +9,5 @@ export const COVERS: Record<string, string> = {
+   panic: "<svg viewBox=\"0 0 400 260\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\">\n<defs>\n<linearGradient id=\"psWall\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n<stop offset=\"0\" stop-color=\"#14181b\"/>\n<stop offset=\"1\" stop-color=\"#232a2e\"/>\n</linearGradient>\n<radialGradient id=\"psAlarm\" cx=\"50%\" cy=\"0%\" r=\"80%\">\n<stop offset=\"0\" stop-color=\"#ff3b2a\" stop-opacity=\".55\"/>\n<stop offset=\"1\" stop-color=\"#ff3b2a\" stop-opacity=\"0\"/>\n</radialGradient>\n<radialGradient id=\"psDoor\" cx=\"50%\" cy=\"50%\" r=\"50%\">\n<stop offset=\"0\" stop-color=\"#8fe0b0\" stop-opacity=\".5\"/>\n<stop offset=\"1\" stop-color=\"#8fe0b0\" stop-opacity=\"0\"/>\n</radialGradient>\n<pattern id=\"psHz\" width=\"16\" height=\"16\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n<rect width=\"16\" height=\"16\" fill=\"#1a1a1a\"/><rect width=\"8\" height=\"16\" fill=\"#f2c21b\"/>\n</pattern>\n</defs>\n<rect width=\"400\" height=\"260\" fill=\"url(#psWall)\"/>\n<path d=\"M0 0 L140 70 L140 190 L0 260 Z\" fill=\"#1b2125\"/>\n<path d=\"M400 0 L260 70 L260 190 L400 260 Z\" fill=\"#1b2125\"/>\n<path d=\"M0 260 L140 190 L260 190 L400 260 Z\" fill=\"#101315\"/>\n<path d=\"M0 0 L140 70 L260 70 L400 0 Z\" fill=\"#0d1012\"/>\n<g stroke=\"#2f383d\" stroke-width=\"2\" fill=\"none\">\n<path d=\"M40 20 V240\"/><path d=\"M90 45 V215\"/><path d=\"M360 20 V240\"/><path d=\"M310 45 V215\"/>\n<path d=\"M0 260 L140 190 M400 260 L260 190 M70 225 L330 225\"/>\n</g>\n<rect x=\"140\" y=\"70\" width=\"120\" height=\"120\" fill=\"#0b0e10\" stroke=\"#3a454b\" stroke-width=\"3\"/>\n<circle cx=\"200\" cy=\"130\" r=\"70\" fill=\"url(#psDoor)\"/>\n<rect x=\"150\" y=\"80\" width=\"48\" height=\"100\" fill=\"#20282c\" stroke=\"#3a454b\" stroke-width=\"2\"/>\n<rect x=\"202\" y=\"80\" width=\"48\" height=\"100\" fill=\"#20282c\" stroke=\"#3a454b\" stroke-width=\"2\"/>\n<rect x=\"140\" y=\"182\" width=\"120\" height=\"8\" fill=\"url(#psHz)\"/>\n<rect x=\"140\" y=\"70\" width=\"120\" height=\"8\" fill=\"url(#psHz)\"/>\n<path d=\"M164 112 q14 -18 36 -6 q22 -12 36 6 q-10 6 -14 18 q-22 -10 -44 0 q-4 -12 -14 -18Z\" fill=\"#0b0e10\" opacity=\".9\"/>\n<g fill=\"#0b0e10\">\n<circle cx=\"200\" cy=\"128\" r=\"14\"/>\n<path d=\"M188 136 q-20 10 -30 28 M212 136 q20 10 30 28 M190 122 q-22 -6 -34 -22 M210 122 q22 -6 34 -22\" stroke=\"#0b0e10\" stroke-width=\"5\" stroke-linecap=\"round\" fill=\"none\"/>\n</g>\n<circle cx=\"194\" cy=\"126\" r=\"2.6\" fill=\"#ff4a36\"/><circle cx=\"206\" cy=\"126\" r=\"2.6\" fill=\"#ff4a36\"/>\n<rect width=\"400\" height=\"260\" fill=\"url(#psAlarm)\"/>\n<rect x=\"186\" y=\"4\" width=\"28\" height=\"12\" rx=\"3\" fill=\"#ff3b2a\"/>\n<rect x=\"190\" y=\"6\" width=\"20\" height=\"4\" rx=\"2\" fill=\"#ffc2b8\"/>\n<g fill=\"#ff3b2a\" opacity=\".9\">\n<rect x=\"18\" y=\"110\" width=\"10\" height=\"40\" rx=\"2\"/><rect x=\"372\" y=\"110\" width=\"10\" height=\"40\" rx=\"2\"/>\n</g>\n<g transform=\"translate(100 196)\"><circle r=\"16\" fill=\"#d8392b\" stroke=\"#111\" stroke-width=\"3\"/><path d=\"M-6 -6 h12 v12 h-12z\" fill=\"#111\" opacity=\".5\"/></g>\n<g transform=\"translate(300 196)\"><circle r=\"16\" fill=\"#2d8ee6\" stroke=\"#111\" stroke-width=\"3\"/><path d=\"M-6 -6 h12 v12 h-12z\" fill=\"#111\" opacity=\".5\"/></g>\n<g transform=\"translate(150 222)\"><circle r=\"12\" fill=\"#3fb43a\" stroke=\"#111\" stroke-width=\"3\"/></g>\n<g transform=\"translate(250 222)\"><circle r=\"12\" fill=\"#f28c1b\" stroke=\"#111\" stroke-width=\"3\"/></g>\n</svg>",
+   caesar: "<svg viewBox=\"0 0 400 260\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\">\n<defs>\n<linearGradient id=\"scSky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n<stop offset=\"0\" stop-color=\"#230a1f\"/>\n<stop offset=\".55\" stop-color=\"#5b1a4a\"/>\n<stop offset=\"1\" stop-color=\"#b8563a\"/>\n</linearGradient>\n<radialGradient id=\"scSun\" cx=\"50%\" cy=\"50%\" r=\"50%\">\n<stop offset=\"0\" stop-color=\"#ffd58a\"/>\n<stop offset=\"1\" stop-color=\"#ffd58a\" stop-opacity=\"0\"/>\n</radialGradient>\n<linearGradient id=\"scStone\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n<stop offset=\"0\" stop-color=\"#3a1430\"/>\n<stop offset=\"1\" stop-color=\"#1e0819\"/>\n</linearGradient>\n</defs>\n<rect width=\"400\" height=\"260\" fill=\"url(#scSky)\"/>\n<circle cx=\"200\" cy=\"196\" r=\"110\" fill=\"url(#scSun)\" opacity=\".5\"/>\n<circle cx=\"200\" cy=\"196\" r=\"34\" fill=\"#ffd894\" opacity=\".85\"/>\n<g fill=\"#fff\" opacity=\".6\">\n<circle cx=\"34\" cy=\"26\" r=\"1.3\"/><circle cx=\"92\" cy=\"58\" r=\"1\"/><circle cx=\"150\" cy=\"20\" r=\"1.4\"/><circle cx=\"262\" cy=\"34\" r=\"1\"/><circle cx=\"318\" cy=\"18\" r=\"1.5\"/><circle cx=\"372\" cy=\"52\" r=\"1.1\"/>\n</g>\n<g fill=\"url(#scStone)\">\n<path d=\"M96 104 L200 62 L304 104 Z\"/>\n<rect x=\"90\" y=\"104\" width=\"220\" height=\"12\"/>\n<rect x=\"82\" y=\"214\" width=\"236\" height=\"10\"/>\n<rect x=\"72\" y=\"224\" width=\"256\" height=\"10\"/>\n<rect x=\"62\" y=\"234\" width=\"276\" height=\"26\"/>\n</g>\n<path d=\"M112 100 L200 68 L288 100\" fill=\"none\" stroke=\"#d8b25a\" stroke-width=\"2\" opacity=\".75\"/>\n<path d=\"M90 116 H310\" stroke=\"#d8b25a\" stroke-width=\"2\" opacity=\".6\"/>\n<g fill=\"#2b0d26\">\n<rect x=\"102\" y=\"120\" width=\"14\" height=\"94\"/><rect x=\"138\" y=\"120\" width=\"14\" height=\"94\"/><rect x=\"174\" y=\"120\" width=\"14\" height=\"94\"/>\n<rect x=\"212\" y=\"120\" width=\"14\" height=\"94\"/><rect x=\"248\" y=\"120\" width=\"14\" height=\"94\"/><rect x=\"284\" y=\"120\" width=\"14\" height=\"94\"/>\n</g>\n<g fill=\"#3e1536\">\n<rect x=\"98\" y=\"116\" width=\"22\" height=\"5\"/><rect x=\"134\" y=\"116\" width=\"22\" height=\"5\"/><rect x=\"170\" y=\"116\" width=\"22\" height=\"5\"/>\n<rect x=\"208\" y=\"116\" width=\"22\" height=\"5\"/><rect x=\"244\" y=\"116\" width=\"22\" height=\"5\"/><rect x=\"280\" y=\"116\" width=\"22\" height=\"5\"/>\n</g>\n<g fill=\"none\" stroke=\"#d8b25a\" stroke-width=\"3\" stroke-linecap=\"round\">\n<path d=\"M178 92 Q170 80 178 70\"/><path d=\"M222 92 Q230 80 222 70\"/>\n</g>\n<g fill=\"#d8b25a\">\n<ellipse cx=\"173\" cy=\"86\" rx=\"5\" ry=\"2.4\" transform=\"rotate(-50 173 86)\"/><ellipse cx=\"172\" cy=\"77\" rx=\"5\" ry=\"2.4\" transform=\"rotate(-80 172 77)\"/>\n<ellipse cx=\"227\" cy=\"86\" rx=\"5\" ry=\"2.4\" transform=\"rotate(50 227 86)\"/><ellipse cx=\"228\" cy=\"77\" rx=\"5\" ry=\"2.4\" transform=\"rotate(80 228 77)\"/>\n<circle cx=\"200\" cy=\"84\" r=\"5\"/>\n</g>\n<g transform=\"translate(332 150) rotate(28)\">\n<path d=\"M0 -58 L6 -6 L-6 -6 Z\" fill=\"#e8dcc8\"/>\n<path d=\"M0 -58 L0 -6\" stroke=\"#9a8e7a\" stroke-width=\"1\"/>\n<rect x=\"-14\" y=\"-7\" width=\"28\" height=\"5\" rx=\"2\" fill=\"#d8b25a\"/>\n<rect x=\"-3.5\" y=\"-2\" width=\"7\" height=\"22\" rx=\"2\" fill=\"#5a2a1a\"/>\n<circle cx=\"0\" cy=\"23\" r=\"5\" fill=\"#d8b25a\"/>\n</g>\n<g fill=\"#160512\" opacity=\".9\">\n<path d=\"M18 260 V214 q10 -16 20 0 V260Z\"/><circle cx=\"28\" cy=\"206\" r=\"9\"/>\n<path d=\"M44 260 V220 q9 -14 18 0 V260Z\"/><circle cx=\"53\" cy=\"212\" r=\"8\"/>\n<path d=\"M352 260 V218 q10 -16 20 0 V260Z\"/><circle cx=\"362\" cy=\"210\" r=\"9\"/>\n</g>\n</svg>",
+   rokugan: "<svg viewBox=\"0 0 400 260\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\">\n<defs>\n<linearGradient id=\"rkSky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n<stop offset=\"0\" stop-color=\"#1a1420\"/>\n<stop offset=\".55\" stop-color=\"#6b2a2a\"/>\n<stop offset=\"1\" stop-color=\"#d98a4a\"/>\n</linearGradient>\n<radialGradient id=\"rkGlow\" cx=\"50%\" cy=\"50%\" r=\"50%\">\n<stop offset=\"0\" stop-color=\"#ffcf8a\" stop-opacity=\".7\"/>\n<stop offset=\"1\" stop-color=\"#ffcf8a\" stop-opacity=\"0\"/>\n</radialGradient>\n</defs>\n<rect width=\"400\" height=\"260\" fill=\"url(#rkSky)\"/>\n<circle cx=\"200\" cy=\"120\" r=\"120\" fill=\"url(#rkGlow)\"/>\n<circle cx=\"200\" cy=\"120\" r=\"62\" fill=\"#c8362b\"/>\n<path d=\"M0 190 L50 140 L90 172 L140 118 L185 176 L230 150 L285 110 L330 165 L370 138 L400 168 V260 H0Z\" fill=\"#3a1d2b\" opacity=\".85\"/>\n<path d=\"M285 110 L300 128 L292 126 L285 134 L277 125 L270 129Z M140 118 L152 134 L145 131 L139 139 L133 131 L127 134Z\" fill=\"#f1e3d0\" opacity=\".8\"/>\n<g fill=\"#150d16\">\n<rect x=\"192\" y=\"196\" width=\"16\" height=\"30\"/>\n<path d=\"M150 198 Q200 182 250 198 L240 190 Q200 178 160 190Z\"/>\n<rect x=\"172\" y=\"170\" width=\"56\" height=\"22\"/>\n<path d=\"M138 172 Q200 152 262 172 L250 162 Q200 148 150 162Z\"/>\n<rect x=\"178\" y=\"140\" width=\"44\" height=\"22\"/>\n<path d=\"M150 142 Q200 122 250 142 L238 132 Q200 118 162 132Z\"/>\n<rect x=\"184\" y=\"112\" width=\"32\" height=\"20\"/>\n<path d=\"M160 114 Q200 94 240 114 L228 103 Q200 90 172 103Z\"/>\n<rect x=\"198\" y=\"74\" width=\"4\" height=\"22\"/>\n<path d=\"M162 196 h76 v34 h-76Z\"/>\n</g>\n<path d=\"M0 226 Q100 208 200 222 T400 214 V260 H0Z\" fill=\"#150d16\"/>\n<g stroke=\"#150d16\" stroke-width=\"3\" stroke-linecap=\"round\">\n<path d=\"M44 236 V150\"/><path d=\"M70 240 V168\"/><path d=\"M344 236 V156\"/><path d=\"M370 240 V176\"/>\n</g>\n<path d=\"M46 152 h26 v34 l-13 -8 l-13 8Z\" fill=\"#c8362b\"/>\n<path d=\"M72 170 h22 v28 l-11 -7 l-11 7Z\" fill=\"#2f5d8a\"/>\n<path d=\"M346 158 h26 v34 l-13 -8 l-13 8Z\" fill=\"#d8b25a\"/>\n<path d=\"M372 178 h20 v26 l-10 -6 l-10 6Z\" fill=\"#4a7a4a\"/>\n<g fill=\"#f1e3d0\" opacity=\".85\">\n<circle cx=\"59\" cy=\"165\" r=\"5\"/><circle cx=\"359\" cy=\"171\" r=\"5\"/>\n</g>\n</svg>",
++  skullzfyre: "<svg viewBox=\"0 0 400 260\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\">\n<defs><linearGradient id=\"sfSky\" x2=\"0\" y2=\"1\"><stop stop-color=\"#18142b\"/><stop offset=\"1\" stop-color=\"#642444\"/></linearGradient></defs>\n<rect width=\"400\" height=\"260\" fill=\"url(#sfSky)\"/>\n<circle cx=\"200\" cy=\"106\" r=\"67\" fill=\"#ec6c63\"/>\n<path d=\"M0 200 70 126l61 56 69-100 68 96 53-55 79 74v63H0z\" fill=\"#2c1a34\"/>\n<path d=\"m200 82 25 36-19-7-13 9-16-5z\" fill=\"#f3a373\"/>\n<path d=\"M0 230q87-26 174 0 84 19 226-10v40H0z\" fill=\"#171426\"/>\n<path d=\"m201 98-29 37h21l-12 42 46-54h-22l15-25z\" fill=\"#ffd675\"/>\n<path d=\"m101 76 6 10 11 2-9 7 3 12-11-6-10 6 2-12-9-7 12-2zm198-12 4 8 9 2-7 6 2 9-8-4-8 4 2-9-7-6 9-2z\" fill=\"#ffe2aa\"/>\n</svg>",
+ };
+diff --git a/apps/web/src/games.tsx b/apps/web/src/games.tsx
+index 7f16865..aed6293 100644
+--- a/apps/web/src/games.tsx
++++ b/apps/web/src/games.tsx
+@@ -51,6 +51,12 @@ export const GAME_INFO: Record<string, { tagline: string; time: string; accent:
+     accent: '#b23a2e',
+     tags: ['Контроль территорий', 'Блеф'],
+   },
++  skullzfyre: {
++    tagline: 'Соберите заклинание из трёх частей, разыграйте его раньше соперников и станьте последним выжившим магом.',
++    time: '40–60 минут',
++    accent: '#a43868',
++    tags: ['Карточная', 'Фэнтези'],
++  },
+ };
+ 
+ export function Cover({ gameId, className }: { gameId: string | null; className?: string }) {
+diff --git a/apps/web/src/pages/Legal.tsx b/apps/web/src/pages/Legal.tsx
+index 3e4d071..64c6879 100644
+--- a/apps/web/src/pages/Legal.tsx
++++ b/apps/web/src/pages/Legal.tsx
+@@ -53,7 +53,7 @@ function Rules() {
+         <li>
+           Настольные игры на площадке — некоммерческие любительские адаптации для игры с друзьями. Названия, правила и
+           изображения принадлежат их правообладателям: Brass: Birmingham — Roxley Games, Cyclades — Matagot, Discworld:
+-          Ankh-Morpork — Treefrog Games, «Билет на поезд» (Ticket to Ride) — Days of Wonder, «Бой привидений» (Geister) — Алекс Рэндольф, Panic Station — David Ausloos, White Goblin Games, «Тайный Цезарь» — по мотивам Secret Hitler (Goat, Wolf & Cabbage, CC BY-NC-SA 4.0), «Битва за Рокуган» (Battle for Rokugan) — Fantasy Flight Games. Площадка с ними не связана.
++          Ankh-Morpork — Treefrog Games, «Билет на поезд» (Ticket to Ride) — Days of Wonder, «Бой привидений» (Geister) — Алекс Рэндольф, Panic Station — David Ausloos, White Goblin Games, «Тайный Цезарь» — по мотивам Secret Hitler (Goat, Wolf & Cabbage, CC BY-NC-SA 4.0), «Битва за Рокуган» (Battle for Rokugan) — Fantasy Flight Games, «Эпичные схватки боевых магов: Битва на горе Черепламени» — Cryptozoic Entertainment. Площадка с ними не связана.
+         </li>
+       </ul>
+ 
+diff --git a/deploy/Caddyfile b/deploy/Caddyfile
+index 3603194..264d62b 100644
+--- a/deploy/Caddyfile
++++ b/deploy/Caddyfile
+@@ -60,6 +60,19 @@
+ 	}
+ }
+ 
++# Битва на горе Черепламени: обновления идут потоком Server-Sent Events — без буферизации.
++{$SCHEME:http}://skullzfyre.{$DOMAIN:localhost} {
++	encode {
++		gzip
++		match {
++			header Content-Type text/html*
++		}
++	}
++	reverse_proxy skullzfyre:3001 {
++		flush_interval -1
++	}
++}
++
+ # www. и прежний адрес (LEGACY_HOST, например IP.sslip.io) — постоянный редирект на основной домен.
+ {$SCHEME:http}://www.{$DOMAIN:localhost}, {$SCHEME:http}://{$LEGACY_HOST:legacy.localhost} {
+ 	redir {$SCHEME:http}://{$DOMAIN:localhost}{uri} permanent
+diff --git a/deploy/deploy.sh b/deploy/deploy.sh
+index dd44e17..0f75159 100644
+--- a/deploy/deploy.sh
++++ b/deploy/deploy.sh
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env bash
+ # Обновление сервера одной командой (запускать с машины разработчика из папки платформы):
+ #   bash deploy/deploy.sh root@201.24.61.26
+-# Платформа, «Билет на поезд», «Бой привидений», Panic Station, «Тайный Цезарь» и «Битва за Рокуган» уходят архивом текущего коммита (своих репозиториев на GitHub у них нет
++# Платформа, «Билет на поезд», «Бой привидений», Panic Station, «Тайный Цезарь», «Битва за Рокуган» и «Битва на горе Черепламени» уходят архивом текущего коммита (своих репозиториев на GitHub у них нет
+ # или они приватные), остальные игры — git pull с GitHub.
+ # Образы собираются по одному: на сервере 2 ГБ памяти.
+ set -euo pipefail
+@@ -14,13 +14,14 @@ git -C ../ghost-fight-boardgame archive --format=tar HEAD | ssh "$HOST" "mkdir -
+ git -C ../panic-boardgame archive --format=tar HEAD | ssh "$HOST" "mkdir -p $DIR/panic-boardgame && tar -x -C $DIR/panic-boardgame"
+ git -C ../secret-leader-boardgame archive --format=tar HEAD | ssh "$HOST" "mkdir -p $DIR/secret-leader-boardgame && tar -x -C $DIR/secret-leader-boardgame"
+ git -C ../battle-for-rokugan-boardgame archive --format=tar HEAD | ssh "$HOST" "mkdir -p $DIR/battle-for-rokugan-boardgame && tar -x -C $DIR/battle-for-rokugan-boardgame"
++git -C ../skullzfyre-boardgame archive --format=tar HEAD | ssh "$HOST" "mkdir -p $DIR/skullzfyre-boardgame && tar -x -C $DIR/skullzfyre-boardgame"
+ 
+ ssh "$HOST" bash -s <<EOF
+ set -euo pipefail
+ cd $DIR
+ for dir in peaky-blinders-boardgame ancient-greece ankh-morpork; do git -C \$dir pull -q --ff-only; done
+ cd zarya-boardgames-platform
+-for s in platform brass cyclades ankh ttr ghosts panic caesar rokugan; do docker compose build -q \$s; done
++for s in platform brass cyclades ankh ttr ghosts panic caesar rokugan skullzfyre; do docker compose build -q \$s; done
+ docker compose up -d
+ # Caddyfile смонтирован файлом: после распаковки архива контейнер видит старую копию — пересоздаём.
+ docker compose up -d --force-recreate caddy
+diff --git a/deploy/game.sh b/deploy/game.sh
+index 65a34e6..c13090a 100644
+--- a/deploy/game.sh
++++ b/deploy/game.sh
+@@ -4,14 +4,14 @@
+ #   bash deploy/game.sh root@201.24.61.26 ankh             — обновить «Анк-Морпорк»
+ #   bash deploy/game.sh root@201.24.61.26 ankh --rollback  — вернуть предыдущую версию
+ #   bash deploy/game.sh root@201.24.61.26 ankh --yes       — не спрашивать про идущие партии
+-# Игры: brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan. И сама платформа: platform — без перезапуска игр (идущие партии не задеваются).
++# Игры: brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan, skullzfyre. И сама платформа: platform — без перезапуска игр (идущие партии не задеваются).
+ #
+ # Что происходит: код игры (git pull или архив) → текущий образ сохраняется как «:prev» →
+ # сборка образа только этой игры → перезапуск только её контейнера → проверка, что игра отвечает.
+ # Партии лежат на отдельном томе и переживают обновление; клиенты переподключаются сами.
+ set -euo pipefail
+ HOST="${1:?укажите сервер, например root@201.24.61.26}"
+-GAME="${2:?укажите игру: brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan или platform}"
++GAME="${2:?укажите игру: brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan, skullzfyre или platform}"
+ shift 2
+ ROLLBACK=0
+ YES=0
+@@ -19,7 +19,8 @@ for arg in "$@"; do
+   case "$arg" in
+     --rollback) ROLLBACK=1 ;;
+     --yes) YES=1 ;;
+-    *) echo "Неизвестный флаг: $arg" >&2; exit 1 ;;
++    skullzfyre) REPO=skullzfyre-boardgame; SOURCE=archive ;;
++  *) echo "Неизвестный флаг: $arg" >&2; exit 1 ;;
+   esac
+ done
+ 
+@@ -37,7 +38,7 @@ case "$GAME" in
+   panic) REPO=panic-boardgame; SOURCE=archive ;;
+   caesar) REPO=secret-leader-boardgame; SOURCE=archive ;;
+   rokugan) REPO=battle-for-rokugan-boardgame; SOURCE=archive ;;
+-  *) echo "Нет такой игры: $GAME (brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan, platform)" >&2; exit 1 ;;
++  *) echo "Нет такой игры: $GAME (brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan, skullzfyre, platform)" >&2; exit 1 ;;
+ esac
+ # Имя образа, которое даёт docker compose: <проект>-<сервис>.
+ IMAGE=zarya-boardgames-platform-$GAME
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 4320c51..fa9828f 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -8,6 +8,7 @@
+ #   http://panic.localhost      — Panic Station
+ #   http://caesar.localhost     — Тайный Цезарь
+ #   http://rokugan.localhost    — Битва за Рокуган
++#   http://skullzfyre.localhost — Битва на горе Черепламени
+ # Игры собираются из соседних репозиториев (пути — в .env, по умолчанию папки рядом с этой).
+ # Общий Dockerfile игр лежит здесь, в deploy/; его путь задаётся относительно папки игры,
+ # поэтому платформа и игры должны лежать в одной родительской папке.
+@@ -26,7 +27,7 @@ services:
+       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+       - caddy_data:/data
+       - caddy_config:/config
+-    depends_on: [platform, brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan]
++    depends_on: [platform, brass, cyclades, ankh, ttr, ghosts, panic, caesar, rokugan, skullzfyre]
+     restart: unless-stopped
+ 
+   platform:
+@@ -46,6 +47,7 @@ services:
+       PANIC_PUBLIC_URL: ${SCHEME:-http}://panic.${DOMAIN:-localhost}
+       CAESAR_PUBLIC_URL: ${SCHEME:-http}://caesar.${DOMAIN:-localhost}
+       ROKUGAN_PUBLIC_URL: ${SCHEME:-http}://rokugan.${DOMAIN:-localhost}
++      SKULLZFYRE_PUBLIC_URL: ${SCHEME:-http}://skullzfyre.${DOMAIN:-localhost}
+       BRASS_INTERNAL_URL: http://brass:3001
+       CYCLADES_INTERNAL_URL: http://cyclades:3001
+       ANKH_INTERNAL_URL: http://ankh:3001
+@@ -54,6 +56,7 @@ services:
+       PANIC_INTERNAL_URL: http://panic:3001
+       CAESAR_INTERNAL_URL: http://caesar:3001
+       ROKUGAN_INTERNAL_URL: http://rokugan:3001
++      SKULLZFYRE_INTERNAL_URL: http://skullzfyre:3001
+       # Общий с играми секрет служебных маршрутов (освободить место, удалить партию)
+       PLATFORM_SECRET: ${PLATFORM_SECRET:-dev-platform-secret}
+       AVATAR_DIR: /data/avatars
+@@ -177,6 +180,18 @@ services:
+     volumes:
+       - rokugan_matches:/app/data/matches
+ 
++  skullzfyre:
++    restart: unless-stopped
++    environment:
++      PLATFORM_SECRET: ${PLATFORM_SECRET:-dev-platform-secret}
++      PUBLIC_URL: ${SCHEME:-http}://skullzfyre.${DOMAIN:-localhost}
++      PORT: 3001
++      MATCHES_DIR: /data/matches
++    build:
++      context: ${SKULLZFYRE_DIR:-../skullzfyre-boardgame}
++    volumes:
++      - skullzfyre_matches:/data/matches
++
+ volumes:
+   avatars:
+   pgdata:
+@@ -189,3 +204,4 @@ volumes:
+   ghosts_matches:
+   caesar_matches:
+   rokugan_matches:
++  skullzfyre_matches:
+diff --git a/e2e/skullzfyre.mjs b/e2e/skullzfyre.mjs
+new file mode 100644
+index 0000000..bfc2aca
+--- /dev/null
++++ b/e2e/skullzfyre.mjs
+@@ -0,0 +1,101 @@
++// node e2e/skullzfyre.mjs [baseUrl]
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import puppeteer from 'puppeteer';
++
++const base = process.argv[2] ?? 'http://localhost';
++const { users } = JSON.parse(readFileSync(new URL('./accounts.json', import.meta.url)));
++const gameId = 'skullzfyre';
++const catalogTitle = 'Эпичные схватки боевых магов: Битва на горе Черепламени';
++
++async function api(page, method, url, body) {
++  return page.evaluate(async (method, url, body) => {
++    const response = await fetch(url, {
++      method,
++      ...(body === undefined ? {} : {
++        headers: { 'content-type': 'application/json' },
++        body: JSON.stringify(body),
++      }),
++    });
++    return { status: response.status, data: await response.json() };
++  }, method, url, body);
++}
++
++const browser = await puppeteer.launch();
++const players = [];
++let table;
++try {
++  for (const user of users.slice(0, 2)) {
++    const page = await (await browser.createBrowserContext()).newPage();
++    await page.goto(base + '/login', { waitUntil: 'domcontentloaded' });
++    const login = await api(page, 'POST', '/api/auth/login', user);
++    if (login.status >= 400) {
++      const register = await api(page, 'POST', '/api/auth/register', { ...user, agree: true });
++      assert.equal(register.status, 200);
++    }
++    players.push(page);
++  }
++
++  const [host] = players;
++  const catalog = await api(host, 'GET', '/api/games');
++  assert.equal(catalog.status, 200);
++  const game = catalog.data.find((entry) => entry.id === gameId);
++  assert.equal(game?.title, catalogTitle);
++  assert.equal(game.minPlayers, 2);
++  assert.equal(game.maxPlayers, 6);
++  const create = await api(host, 'POST', '/api/tables', { gameId, numPlayers: 2 });
++  assert.equal(create.status, 200);
++  table = create.data;
++
++  const frames = [];
++  for (const [seat, page] of players.entries()) {
++    await page.goto(base + '/t/' + table.id, { waitUntil: 'domcontentloaded' });
++    await page.waitForFrame((frame) => frame.url().startsWith(game.publicUrl + '/'));
++    const iframe = await page.waitForSelector('iframe.table-frame');
++    const frame = await iframe.contentFrame();
++    assert.ok(frame);
++    frames.push(frame);
++    const input = await frame.waitForSelector('.seat-name input');
++    assert.equal(await input.evaluate((element) => element.value), users[seat].name);
++    const claim = await frame.waitForSelector('.lobby-seat:nth-child(' + (seat + 1) + ') button:not(:disabled)');
++    await claim.click();
++    await frame.waitForFunction(() => document.querySelector('.lobby-seats')?.textContent.includes('Ваше место'));
++  }
++
++  const lobby = await api(host, 'GET', '/api/tables/' + table.id);
++  assert.deepEqual(lobby.data.seats.map((seat) => seat.name), users.slice(0, 2).map((user) => user.name));
++  assert.ok(lobby.data.seats.every((seat) => seat.user));
++  assert.equal(await frames[0].$eval('.invites', (element) => getComputedStyle(element).display), 'none');
++  const start = await frames[0].waitForSelector('.lobby-inner > button.primary:not(:disabled)');
++  await start.click();
++
++  for (const frame of frames) {
++    await frame.waitForSelector('.hand article');
++  }
++
++  const watcher = await (await browser.createBrowserContext()).newPage();
++  await watcher.goto(game.publicUrl + '/?embed=1#/m/' + table.matchId + '/watch');
++  await watcher.waitForSelector('.hand .empty-hand');
++  assert.equal((await watcher.$$('.hand article')).length, 0);
++  const spectator = await api(watcher, 'GET', '/api/' + table.matchId + '/view');
++  assert.equal(spectator.data.seat, null);
++  assert.deepEqual(spectator.data.game.hand, []);
++
++  let leave;
++  for (const player of players) {
++    leave = await api(player, 'POST', '/api/tables/' + table.id + '/leave', {});
++    assert.equal(leave.status, 200);
++  }
++  assert.equal(leave.data.closed, true);
++  const gone = await api(watcher, 'GET', '/games/' + gameId + '/' + table.matchId);
++  assert.equal(gone.status, 404);
++  table = null;
++  console.log('Каталог, игра во фрейме, приватность рук и закрытие стола проверены.');
++} finally {
++  if (table) {
++    for (const player of players) {
++      await api(player, 'POST', '/api/tables/' + table.id + '/leave', {}).catch(() => {});
++    }
++  }
++  await browser.close();
++}
+diff --git a/promo/reset-demo.sh b/promo/reset-demo.sh
+index 48dbe4e..612efb3 100644
+--- a/promo/reset-demo.sh
++++ b/promo/reset-demo.sh
+@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
+ docker rm -f zarya-demo >/dev/null 2>&1 || true
+ docker compose exec -T postgres psql -q -U zarya -d zarya -c "drop database if exists zarya_demo" -c "create database zarya_demo"
+ games=""
+-for g in brass cyclades ankh ttr ghosts panic caesar rokugan; do
++for g in brass cyclades ankh ttr ghosts panic caesar rokugan skullzfyre; do
+   G=$(echo "$g" | tr a-z A-Z)
+   games="$games -e ${G}_PUBLIC_URL=http://$g.localhost -e ${G}_INTERNAL_URL=http://$g:3001"
+ done
